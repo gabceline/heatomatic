@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""
+LabJack U3-HV OLED and Rotary Encoder Test
+Tests OLED display (I2C) and rotary encoder functionality
+
+Hardware connections:
+- Rotary Encoder: CLK->FIO5, DT->FIO6, SW->FIO7, VS->5V, GND->GND
+- OLED: SDA->DAC0, SCL->DAC1, VCC->VS(5V), GND->GND
+
+Requirements:
+- pip install u3 pillow
+- OLED library (depends on your display - SSD1306, SH1106, etc.)
+"""
+
+import u3
+import time
+import threading
+from collections import deque
+
+# Try to import OLED libraries (common ones)
+try:
+    from luma.core.interface.serial import i2c
+    from luma.core.render import canvas
+    from luma.oled.device import ssd1306, sh1106
+    from PIL import ImageFont
+    OLED_AVAILABLE = True
+    print("OLED libraries found")
+except ImportError:
+    OLED_AVAILABLE = False
+    print("OLED libraries not found. Install with: pip install luma.oled pillow")
+
+class RotaryEncoder:
+    def __init__(self, labjack_device, clk_pin=5, dt_pin=6, sw_pin=7):
+        self.lj = labjack_device
+        self.clk_pin = clk_pin  # FIO5
+        self.dt_pin = dt_pin    # FIO6  
+        self.sw_pin = sw_pin    # FIO7
+       
+        # Encoder state
+        self.position = 0
+        self.last_clk = 0
+        self.last_dt = 0
+        self.button_pressed = False
+        self.last_button = 1  # Assume pull-up
+       
+        # Configure pins as inputs
+        self._configure_pins()
+       
+        # Initialize previous states
+        self._read_initial_state()
+       
+    def _configure_pins(self):
+        """Configure FIO pins as digital inputs"""
+        try:
+            # Set pins as inputs (0 = input, 1 = output)
+            self.lj.getFeedback(u3.BitDirWrite(self.clk_pin, 0))  # FIO5 input
+            self.lj.getFeedback(u3.BitDirWrite(self.dt_pin, 0))   # FIO6 input  
+            self.lj.getFeedback(u3.BitDirWrite(self.sw_pin, 0))   # FIO7 input
+            print(f"Configured encoder pins - CLK: FIO{self.clk_pin}, DT: FIO{self.dt_pin}, SW: FIO{self.sw_pin}")
+        except Exception as e:
+            print(f"Error configuring encoder pins: {e}")
+   
+    def _read_initial_state(self):
+        """Read initial pin states"""
+        try:
+            clk_state = self.lj.getFeedback(u3.BitStateRead(self.clk_pin))[0]
+            dt_state = self.lj.getFeedback(u3.BitStateRead(self.dt_pin))[0]
+            self.last_clk = clk_state
+            self.last_dt = dt_state
+        except Exception as e:
+            print(f"Error reading initial encoder state: {e}")
+   
+    def read(self):
+        """Read encoder and return (position_change, button_pressed)"""
+        try:
+            # Read current states
+            clk_state = self.lj.getFeedback(u3.BitStateRead(self.clk_pin))[0]
+            dt_state = self.lj.getFeedback(u3.BitStateRead(self.dt_pin))[0]
+            button_state = self.lj.getFeedback(u3.BitStateRead(self.sw_pin))[0]
+           
+            # Detect rotation
+            position_change = 0
+            if clk_state != self.last_clk:
+                if clk_state == 0:  # Falling edge on CLK
+                    if dt_state != clk_state:
+                        self.position += 1
+                        position_change = 1
+                    else:
+                        self.position -= 1
+                        position_change = -1
+           
+            # Detect button press (assuming active low with pull-up)
+            button_pressed = False
+            if self.last_button == 1 and button_state == 0:
+                button_pressed = True
+                self.button_pressed = True
+            elif self.last_button == 0 and button_state == 1:
+                self.button_pressed = False
+           
+            # Update states
+            self.last_clk = clk_state
+            self.last_dt = dt_state  
+            self.last_button = button_state
+           
+            return position_change, button_pressed
+           
+        except Exception as e:
+            print(f"Error reading encoder: {e}")
+            return 0, False
+
+class OLEDDisplay:
+    def __init__(self, labjack_device, sda_pin=0, scl_pin=1, display_type='ssd1306'):
+        self.lj = labjack_device
+        self.sda_pin = sda_pin  # DAC0
+        self.scl_pin = scl_pin  # DAC1
+        self.device = None
+        self.font = None
+       
+        if OLED_AVAILABLE:
+            self._setup_i2c()
+            self._setup_display(display_type)
+        else:
+            print("OLED not available - install luma.oled library")
+   
+    def _setup_i2c(self):
+        """Setup I2C interface using LabJack pins"""
+        try:
+            # Configure DAC pins for I2C
+            # Note: This is a simplified setup - you may need to configure
+            # the LabJack's I2C interface properly for your specific OLED
+            print(f"Setting up I2C - SDA: DAC{self.sda_pin}, SCL: DAC{self.scl_pin}")
+           
+            # For actual I2C communication, you might need to use LabJack's
+            # I2C functions or bit-bang the protocol
+           
+        except Exception as e:
+            print(f"Error setting up I2C: {e}")
+   
+    def _setup_display(self, display_type):
+        """Setup OLED display"""
+        try:
+            # Create I2C interface (this is a placeholder - adjust for LabJack)
+            # serial = i2c(port=1, address=0x3C)  # Common I2C address for OLED
+           
+            # For now, we'll simulate the display
+            print(f"OLED display ({display_type}) initialized (simulated)")
+            self.device = "simulated"  # Placeholder
+           
+        except Exception as e:
+            print(f"Error setting up OLED display: {e}")
+   
+    def clear(self):
+        """Clear display"""
+        if self.device:
+            print("OLED: Clearing display")
+   
+    def write_text(self, text, line=0):
+        """Write text to display"""
+        if self.device:
+            print(f"OLED Line {line}: {text}")
+   
+    def draw_menu(self, items, selected_index):
+        """Draw a menu with selection indicator"""
+        if self.device:
+            print("OLED Menu:")
+            for i, item in enumerate(items):
+                indicator = ">" if i == selected_index else " "
+                print(f"OLED:  {indicator} {item}")
+
+class TestApplication:
+    def __init__(self):
+        self.lj = None
+        self.encoder = None
+        self.display = None
+        self.running = False
+       
+        # Test data
+        self.menu_items = [
+            "Encoder Test",
+            "OLED Test",
+            "Counter Demo",
+            "Settings",
+            "Exit"
+        ]
+        self.selected_item = 0
+        self.counter = 0
+        self.mode = "menu"  # menu, counter, test
+       
+    def connect_labjack(self):
+        """Connect to LabJack U3-HV"""
+        try:
+            print("Connecting to LabJack U3-HV...")
+            self.lj = u3.U3()
+           
+            # Get device info using correct methods
+            device_info = self.lj.configU3()
+            print(f"Connected! LabJack U3 found")
+            print(f"Firmware Version: {device_info['FirmwareVersion']}")
+            print(f"Bootloader Version: {device_info['BootloaderVersion']}")
+            print(f"Hardware Version: {device_info['HardwareVersion']}")
+            print(f"Serial Number: {device_info['SerialNumber']}")
+            print(f"Product ID: {device_info['ProductID']}")
+           
+            return True
+        except Exception as e:
+            print(f"Failed to connect to LabJack: {e}")
+            print("Make sure:")
+            print("1. LabJack is connected via USB")
+            print("2. LabJack drivers are installed")
+            print("3. No other programs are using the LabJack")
+            return False
+   
+    def initialize_devices(self):
+        """Initialize encoder and display"""
+        try:
+            print("Initializing devices...")
+            self.encoder = RotaryEncoder(self.lj)
+            self.display = OLEDDisplay(self.lj)
+            print("Devices initialized successfully")
+            return True
+        except Exception as e:
+            print(f"Failed to initialize devices: {e}")
+            return False
+   
+    def test_encoder_only(self):
+        """Test rotary encoder functionality"""
+        print("\n=== ENCODER TEST ===")
+        print("Rotate encoder and press button. Press Ctrl+C to exit.")
+       
+        try:
+            while True:
+                pos_change, button_pressed = self.encoder.read()
+               
+                if pos_change != 0:
+                    print(f"Encoder: Position = {self.encoder.position:4d}, Change = {pos_change:+2d}")
+               
+                if button_pressed:
+                    print(f"Button pressed! Current position: {self.encoder.position}")
+               
+                time.sleep(0.01)  # 100Hz polling
+               
+        except KeyboardInterrupt:
+            print("\nEncoder test stopped")
+   
+    def test_display_only(self):
+        """Test OLED display functionality"""
+        print("\n=== DISPLAY TEST ===")
+       
+        try:
+            self.display.clear()
+           
+            for i in range(5):
+                self.display.write_text(f"Line {i}: Test {i*2}", i)
+                time.sleep(0.5)
+           
+            time.sleep(2)
+           
+            # Test menu display
+            for i in range(len(self.menu_items)):
+                self.display.draw_menu(self.menu_items, i)
+                time.sleep(1)
+               
+        except Exception as e:
+            print(f"Display test error: {e}")
+   
+    def run_interactive_demo(self):
+        """Run interactive demo with both encoder and display"""
+        print("\n=== INTERACTIVE DEMO ===")
+        print("Use encoder to navigate menu, press button to select")
+        print("Press Ctrl+C to exit")
+       
+        self.mode = "menu"
+        self.display.draw_menu(self.menu_items, self.selected_item)
+       
+        try:
+            while self.running:
+                pos_change, button_pressed = self.encoder.read()
+               
+                if self.mode == "menu":
+                    # Handle menu navigation
+                    if pos_change != 0:
+                        self.selected_item = (self.selected_item + pos_change) % len(self.menu_items)
+                        self.display.draw_menu(self.menu_items, self.selected_item)
+                   
+                    if button_pressed:
+                        selected = self.menu_items[self.selected_item]
+                        print(f"\nSelected: {selected}")
+                       
+                        if selected == "Exit":
+                            break
+                        elif selected == "Counter Demo":
+                            self.mode = "counter"
+                            self.counter = 0
+                            print("Counter mode - rotate to change, button to reset, hold to return to menu")
+                        elif selected == "Encoder Test":
+                            self.test_encoder_only()
+                            self.display.draw_menu(self.menu_items, self.selected_item)
+                        elif selected == "OLED Test":
+                            self.test_display_only()
+                            self.display.draw_menu(self.menu_items, self.selected_item)
+               
+                elif self.mode == "counter":
+                    # Handle counter mode
+                    if pos_change != 0:
+                        self.counter += pos_change
+                        self.display.write_text(f"Counter: {self.counter}", 0)
+                        self.display.write_text("Button: reset", 1)
+                        self.display.write_text("Hold: menu", 2)
+                   
+                    if button_pressed:
+                        if self.encoder.button_pressed:  # Still pressed
+                            # Long press - return to menu
+                            time.sleep(0.5)
+                            if self.encoder.button_pressed:
+                                self.mode = "menu"
+                                self.display.draw_menu(self.menu_items, self.selected_item)
+                                print("Returning to menu")
+                        else:
+                            # Short press - reset counter
+                            self.counter = 0
+                            self.display.write_text(f"Counter: {self.counter} (RESET)", 0)
+                            print("Counter reset")
+               
+                time.sleep(0.01)  # 100Hz polling
+               
+        except KeyboardInterrupt:
+            print("\nDemo stopped by user")
+   
+    def run_basic_test(self):
+        """Run basic functionality test"""
+        print("\n=== BASIC FUNCTIONALITY TEST ===")
+       
+        print("Testing encoder reads...")
+        for i in range(10):
+            pos_change, button = self.encoder.read()
+            print(f"Read {i+1}: pos_change={pos_change}, button={button}, total_pos={self.encoder.position}")
+            time.sleep(0.1)
+       
+        print("\nTesting display...")
+        self.display.clear()
+        self.display.write_text("LabJack U3-HV", 0)
+        self.display.write_text("OLED + Encoder", 1)
+        self.display.write_text("Test Success!", 2)
+       
+        print("Basic test completed!")
+   
+    def run(self):
+        """Main application loop"""
+        print("LabJack U3-HV OLED and Rotary Encoder Test")
+        print("=" * 50)
+       
+        # Connect to LabJack
+        if not self.connect_labjack():
+            return
+       
+        # Initialize devices  
+        if not self.initialize_devices():
+            return
+       
+        self.running = True
+       
+        try:
+            while True:
+                print("\nSelect test mode:")
+                print("1. Basic Test")
+                print("2. Encoder Only Test")
+                print("3. Display Only Test")
+                print("4. Interactive Demo")
+                print("5. Exit")
+               
+                choice = input("\nEnter choice (1-5): ").strip()
+               
+                if choice == "1":
+                    self.run_basic_test()
+                elif choice == "2":
+                    self.test_encoder_only()
+                elif choice == "3":
+                    self.test_display_only()
+                elif choice == "4":
+                    self.run_interactive_demo()
+                elif choice == "5":
+                    break
+                else:
+                    print("Invalid choice!")
+       
+        except KeyboardInterrupt:
+            print("\nApplication interrupted")
+       
+        finally:
+            self.running = False
+            if self.lj:
+                self.lj.close()
+                print("LabJack connection closed")
+
+if __name__ == "__main__":
+    app = TestApplication()
+    app.run()
