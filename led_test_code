@@ -1,0 +1,31 @@
+import u3
+import time
+ 
+# Open LabJack U3
+d = u3.U3()
+print("Connected to LabJack U3!")
+ 
+led_pin = 4  # FIO4
+blink_duration = 10  # total seconds to blink
+interval = 1         # seconds per ON/OFF
+ 
+start_time = time.time()
+ 
+try:
+    while time.time() - start_time < blink_duration:
+        # Turn LED ON
+        d.setFIOState(led_pin, 1)
+        print("LED ON")
+        time.sleep(interval)
+ 
+        # Turn LED OFF
+        d.setFIOState(led_pin, 0)
+        print("LED OFF")
+        time.sleep(interval)
+ 
+finally:
+    # Make sure LED is off and close device
+    d.setFIOState(led_pin, 0)
+    d.close()
+    print("Exiting")
+ 
